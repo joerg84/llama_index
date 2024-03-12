@@ -48,6 +48,7 @@ from llama_index.core.types import BaseOutputParser, PydanticProgramMode
 from llama_index.llms.openai.utils import (
     from_openai_message,
     from_openai_token_logprobs,
+    from_openai_completion_logprobs,
     is_chat_model,
     is_function_calling_model,
     openai_modelname_to_contextsize,
@@ -299,8 +300,11 @@ class OpenAI(LLM):
             # https://platform.openai.com/docs/api-reference/completions
             base_kwargs["max_tokens"] = self.max_tokens
         if self.logprobs is not None and self.logprobs is True:
-            base_kwargs["logprobs"] = self.logprobs
-            base_kwargs["top_logprobs"] = self.top_logprobs
+            if self.metadata.is_chat_model:
+                base_kwargs["logprobs"] = self.logprobs
+                base_kwargs["top_logprobs"] = self.top_logprobs
+            else:
+                base_kwargs["logprobs"] = self.top_logprobs  # int in this case
         return {**base_kwargs, **self.additional_kwargs}
 
     def _chat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
@@ -433,10 +437,18 @@ class OpenAI(LLM):
             stream=False,
             **all_kwargs,
         )
+        print(f"raw response: {response}", flush=True)
         text = response.choices[0].text
+
+        openai_completion_logprobs = response.choices[0].logprobs
+        logprobs = None
+        if openai_completion_logprobs:
+            logprobs = from_openai_completion_logprobs(openai_completion_logprobs)
+
         return CompletionResponse(
             text=text,
             raw=response,
+            logprobs=logprobs,
             additional_kwargs=self._get_response_token_counts(response),
         )
 
